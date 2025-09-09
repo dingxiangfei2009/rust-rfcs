@@ -16,22 +16,36 @@ trait Supertrait2 {
     type Type1;
     type Type2;
 }
-trait Subtrait: Supertrait1 + Supertrait2 {
+trait Subtrait1: Supertrait1 {
     auto impl Supertrait1;
+}
+impl Subtrait1 for MyType {
+    type Type = u8; // implicitly implements `Supertrait1::Type := u8`
+}
+
+trait Subtrait2: Supertrait2 {
     auto impl Supertrait2 {
         type Type1 = Self;
         type Type2 = ();
     }
 }
-impl Subtrait for MyType {
-    type Type = u8; // implicitly implements Supertrait1::Type
-
-    auto impl Supertrait2; // This generates an implicit `impl Supertrait2 for MyType` as backfill
+impl Subtrait2 for MyType {
+    auto impl Supertrait2;
+    // ^ This generates an implicit `impl Supertrait2 for MyType`
+    // with `Type1 := MyType` and `Type2 := ()` as backfill
 }
 ```
 
 # Motivation
 [motivation]: #motivation
+
+## Trait evolution
+
+Trait evolution is a treatment to existing trait hierarchy in a library. Difficulty has arised in the past that hoisting items from a current trait into a second trait, or introduction of a second trait 
+
+### Example: supertrait introduction
+
+### Example: trait refinement by item hoisting
 
 ## Helpers for implementing traits
 
@@ -55,8 +69,27 @@ struct MyStructProxy<'a> {
     digit: i32,
 }
 
+trait SerializeByProxy: Serialize {
+    // See https://docs.rs/serde/latest/serde/trait.Serialize.html
+    auto impl Serialize {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            // First construct the proxy
+            let proxy = SerializeByProxy::serialize(self);
+            // Then delegate the serialization to the proxy
+            proxy.serialize(serializer)
+        }
+    }
+
+    type Proxy<'a>: Serialize
+    where Self: 'a;
+
+    fn serialize(&self) -> Proxy<'_>;
+}
+
 impl SerializeByProxy for MyStruct {
-    type Proxy<'a> = MyStructProxy<'a>;
+    type Proxy<'a> = MyStructProxy<'a>
+    where Self: 'a;
+
     fn serialize(&self) -> MyStructProxy<'_> {
         Proxy {
             name: &self.name,
@@ -64,6 +97,8 @@ impl SerializeByProxy for MyStruct {
             tens: self.int / 10,
         }
     }
+    // Now `MyStruct` is also automatically `Serialize`
+    // via a proxy.
 }
 ```
 And then `MyStruct` automatically implements `Serialize` by creating a `MyStructProxy` instance and serializing the proxy. So for example `MyStruct { name: "a", int: 42 }` is serialized into json as `{"name":"a","tens":4,"digit":2}`.
@@ -222,7 +257,7 @@ Over time, needs have arised to establish a hierarchy of traits, so that the par
 
 With this proposal, specialisation is not required and, instead, the pulled-back supertrait implementation applies directly within the context of the subtrait implementation.
 
-```rs=
+```rust
 // A refactored Subtrait that encodes parts of its protocol
 // to be implementable on other types,
 // to which Subtrait is not applicable.

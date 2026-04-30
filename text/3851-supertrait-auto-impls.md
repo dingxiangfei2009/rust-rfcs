@@ -15,15 +15,14 @@ trait Supertrait2 {
     type Type1;
     type Type2;
 }
-trait Subtrait1: Supertrait1 {
-    auto impl Supertrait1;
+trait Subtrait1: impl Supertrait1 {
 }
 impl Subtrait1 for MyType {
     type Type = u8; // implicitly implements `Supertrait1::Type := u8`
 }
 
-trait Subtrait2: Supertrait2 {
-    auto impl Supertrait2 {
+trait Subtrait2: impl Supertrait2 {
+    impl Supertrait2 {
         type Type1 = Self;
         type Type2 = ();
     }
@@ -59,13 +58,13 @@ The original trait would need to be reworked and ideally in a way that does not 
 
 ```rust
 // In `std` crate ...
-pub trait Write: WriteFmt {
+pub trait Write: impl WriteFmt {
     // This shadows the supertrait method with one that hardcodes the error type.
     fn write_str(&mut self, s: &str) -> Result<(), Error>;
 
     // ... provided methods elided ...
 
-    auto impl WriteFmt {
+    impl WriteFmt {
         // This is kind of silly, but it gives us the ability to change an
         // existing impl from fmt::Error to !.
         type Error = impl Into<Error>;
@@ -109,8 +108,7 @@ With this RFC, it is possible for the library author to perform the following re
 trait Supertrait {
     fn candidate_for_hoisting(&self); // <~ hoisted
 }
-trait Subtrait: Supertrait {
-    auto impl Supertrait;
+trait Subtrait: impl Supertrait {
     fn subtrait_method(&self);
 }
 
@@ -158,8 +156,8 @@ trait LocalIntFactory {
     fn stream(&self) -> impl Iterator<Item = u32>;
     fn call(&self) -> u32;
 }
-trait IntFactory: Send {
-    auto impl LocalIntFactory {
+trait IntFactory: Send + impl LocalIntFactory {
+    impl LocalIntFactory {
         async fn make(&self) -> i32 {
             IntFactory::make(self).await
         }
@@ -209,9 +207,9 @@ The `PartialOrd` trait could be reworked in this proposal as follows.
 trait PartialOrd<Rhs = Self> {
     fn partial_cmp(&self, other: &Rhs) -> Option<Ordering>;
 }
-trait Ord<Rhs = Self>: PartialOrd<Rhs> {
+trait Ord<Rhs = Self>: impl PartialOrd<Rhs> {
     fn cmp(&self, other: &Rhs) -> Ordering;
-    auto impl PartialOrd<Rhs> {
+    impl PartialOrd<Rhs> {
         fn partial_cmp(&self, other: &Rhs) -> Option<Ordering> {
             Some(self.cmp(other))
         }
@@ -221,11 +219,11 @@ trait Ord<Rhs = Self>: PartialOrd<Rhs> {
 
 There are now two choices for type `X` in the downstream crate.
 
-- Delete the `impl PartialOrd for X`. Without the overlapping `impl`, the `auto impl` can stand in and take effect.
+- Delete the `impl PartialOrd for X`.
 
 ```rust
 // delete: impl PartialOrd for X { .. }
-impl Ord for X {
+impl Ord - PartialOrd for X {
     fn cmp(&self, other: &Rhs) -> Ordering {
         // here it defines the same total ordering
     }
@@ -235,11 +233,7 @@ impl Ord for X {
 - Declare use of the existing applicable `impl PartialOrd for X`.
 
 ```rust
-impl PartialOrd for X {
-    // this is the same implementation
-}
 impl Ord for X {
-    extern impl PartialOrd;
     fn cmp(&self, other: &Rhs) -> Ordering {
         // here it defines the same total ordering
     }
@@ -267,8 +261,7 @@ pub trait AsOwned {
     type Owned: Borrow<Self>;
 }
 
-pub trait ToOwned: AsOwned {
-    auto impl AsOwned;
+pub trait ToOwned: impl AsOwned {
 
     fn to_owned(&self) -> Self::Owned;
 
@@ -337,9 +330,9 @@ struct MyStructProxy<'a> {
     digit: i32,
 }
 
-trait SerializeByProxy: Serialize {
+trait SerializeByProxy: impl Serialize {
     // See https://docs.rs/serde/latest/serde/trait.Serialize.html
-    auto impl Serialize {
+    impl Serialize {
         fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
             // First construct the proxy
             let proxy = SerializeByProxy::serialize(self);
@@ -435,8 +428,8 @@ pub trait Receiver {
     type Target: ?Sized;
 }
 
-pub trait Deref: Receiver {
-    auto impl Receiver;
+pub trait Deref: impl Receiver {
+    impl Receiver;
 
     fn deref(&self) -> &Self::Target;
 }
@@ -522,9 +515,7 @@ trait MyTrait {
     fn my_func(&self);
 }
 
-trait MySubTrait: MyTrait {
-    auto impl MyTrait;
-    
+trait MySubTrait: impl MyTrait {
     fn my_second_func(&self);
 }
 ```
@@ -536,7 +527,7 @@ impl MySubTrait for String {
     fn my_func(&self) {
         println!("my_func on String");
     }
-    
+
     fn my_second_func(&self) {
         println!("my_second_func on String");
     }
@@ -551,15 +542,14 @@ impl MyTrait for String {
         println!("my_func on String");
     }
 }
-impl MySubTrait for String {
-    extern impl MyTrait;
+impl MySubTrait - MyTrait for String {
     fn my_second_func(&self) {
         println!("my_second_func on String");
     }
 }
 ```
 
-The `extern impl MyTrait` declaration specifies the impl block does not automatically implement `MyTrait`, and that another impl block is used instead.
+The `impl MySubTrait - MyTrait for` declaration specifies the impl block does not automatically implement `MyTrait`, and that another impl block is used instead.
 
 ### Example: Trait evolution
 
@@ -615,14 +605,14 @@ trait MyTrait {
     fn my_func(&self);
 }
 
-trait MySubTrait: MyTrait {
-    auto impl MyTrait {
+trait MySubTrait: impl MyTrait {
+    impl MyTrait {
         fn my_func(&self) {
             self.my_second_func();
             self.my_second_func();
         }
     }
-    
+
     fn my_second_func(&self);
 }
 ```
@@ -650,8 +640,8 @@ enum MouseEvent {
     MoveEvent(MoveEvent),
 }
 
-trait MouseEventHandler: EventHandler {
-    auto impl EventHandler {
+trait MouseEventHandler: impl EventHandler {
+    impl EventHandler {
         type Event = MouseEvent;
         fn handle_event(&mut self, event: MouseEvent) {
             use MouseEvent::*;
@@ -661,7 +651,7 @@ trait MouseEventHandler: EventHandler {
             }
         }
     }
-    
+
     fn click_event(&mut self, event: ClickEvent);
     fn move_event(&mut self, event: MoveEvent);
 }
@@ -684,16 +674,15 @@ impl MouseEventHandler for PrintHandler {
 
 The `MouseEventHandler` trait could even come from a different crate than `EventHandler`.
 
-## Unsafe auto impl
+## Unsafe `auto impl`
 
 When the supertrait is an `unsafe trait`, its auto implementation must also be `unsafe`.
 
 ```rs
 unsafe trait MyTrait {}
 
-trait MySubTrait: MyTrait {
-    unsafe auto impl MyTrait;
-    
+trait MySubTrait: unsafe impl MyTrait {
+
     fn my_second_func(&self);
 }
 ```
@@ -704,7 +693,7 @@ This implies that it is unsafe to override the auto implementation.
 impl MySubTrait for String {
     // unsafe is required here because the `auto impl`
     // is marked unsafe.
-    unsafe extern impl MyTrait;
+    unsafe impl MyTrait;
 
     fn my_second_func(&self) {
         println!("my_second_func on String");
@@ -726,9 +715,9 @@ unsafe trait Even {
     fn even(&self) -> usize;
 }
 
-trait Double: Even {
+trait Double: unsafe impl Even {
     // SAFETY: 2*x is always even
-    unsafe auto impl Even {
+    unsafe impl Even {
         fn even(&self) -> usize {
             2 * self.value_to_double()
         }
@@ -751,8 +740,8 @@ impl Double for String {
 In a trait declaration, you may declare one or more `auto impl` items with a block that provides implementations for one or more items from the super trait.
 
 ```rs
-trait SubTrait: SuperTrait {
-    auto impl SuperTrait {
+trait SubTrait: impl SuperTrait {
+    impl SuperTrait {
         const MY_CONST: u32 = 10;
         type MyType = String;
         fn my_func(&self) -> u32 {
@@ -762,16 +751,15 @@ trait SubTrait: SuperTrait {
 }
 ```
 
-All items inside the `auto impl` block must match an item from the super trait of the same name and signature. When the block is empty, it is legal to use a semicolon instead. That is, these are equivalent:
+All items inside the `impl` block must match an item from the super trait of the same name and signature. When the block is empty, it is legal to use a semicolon instead. That is, these are equivalent:
 
-- `auto impl SuperTrait {}`
-- `auto impl SuperTrait;`
+- `impl SuperTrait {}`
+- `impl SuperTrait;`
 
 The type of the super trait can be anything that matches the [TypePath](https://doc.rust-lang.org/reference/paths.html#grammar-TypePath) grammar and evaluates to a trait. This means that, for example, this is legal:
 
 ```rs
-trait SubTrait<T> {
-    auto impl MyGenericTrait<T, u32>;
+trait SubTrait<T>: impl MyGenericTrait<T, u32> {
 }
 ```
 
@@ -795,8 +783,8 @@ trait SuperTrait<T, U> {
     fn my_default_item(&self, arg: T);
 }
 
-trait SubTrait<T>: SuperTrait<T, u32> {
-    auto impl SuperTrait<T, u32> {
+trait SubTrait<T>: impl SuperTrait<T, u32> {
+    impl SuperTrait<T, u32> {
         fn my_default_item(&self, arg: T) {}
     }
     fn my_second_item(&self, arg: T);
@@ -820,12 +808,10 @@ is short-hand for this:
 ```rs
 // The original impl block MINUS the super-trait's methods
 // PLUS an extern impl statement:
-impl<T, U> SubTrait<T> for MyStruct<U>
+impl<T, U> SubTrait<T> - SuperTrait<T, u32> for MyStruct<U>
 where
     T: MyTraitBound<U>,
 {
-    extern impl SuperTrait<T, u32>;
-
     fn my_second_item(&self, arg: T) {}
 }
 
@@ -838,7 +824,7 @@ where
 {
     // With SuperTrait's methods from the impl block
     fn my_first_item(&self, arg: u32) {}
-    
+
     // AND SuperTrait's methods from the auto impl block
     fn my_default_item(&self, arg: T) {}
 }
@@ -857,8 +843,8 @@ trait Supertrait {
     fn method(&self) -> impl Trait1;
 }
 
-trait Subtrait: Supertrait {
-    auto impl Supertrait {
+trait Subtrait: impl Supertrait {
+    impl Supertrait {
         fn method(&self) -> impl Trait1 = <Self as Subtrait>::method;
     }
 
@@ -883,17 +869,17 @@ parameters.
 
 ```rust
 trait Supertrait<'a> {}
-trait Subtrait: for<'a> Supertrait<'a> {
-    auto impl<'a> Supertrait<'a>;
+trait Subtrait: for impl<'a> Supertrait<'a> {
+    impl<'a> Supertrait<'a>;
 }
 ```
 
 The usual no-shadowing rule applies when it comes to lifetime parameters.
 
 ```rust
-trait Subtrait<'a>: for<'a> Supertrait<'a> {
+trait Subtrait<'a>: for impl<'a> Supertrait<'a> {
     //         ~~ first declared here
-    auto impl<'a> Supertrait<'a> {
+    impl<'a> Supertrait<'a> {
         //~^ ERROR lifetime name `'a` shadows a lifetime name that is already in scope
         //~|  lifetime `'a` already in scope
     }
@@ -906,8 +892,8 @@ If the super trait is `unsafe`, then the `auto impl` declaration must also be `u
 
 When an `auto impl` is declared unsafe, then the choices are
 
-- To opt-out, and you must write `unsafe extern impl`.
-- If any methods from the `unsafe auto impl` block are to be overridden, then the `auto impl` block must be `unsafe`.
+- To opt-out, and you must write `- Supertrait`.
+- If any methods from the `unsafe impl` block are to be overridden, then the `auto impl` block must be `unsafe`.
 
 ## Naming ambiguity
 
@@ -931,17 +917,15 @@ pub trait TraitB {
     fn foo();
 }
 
-pub trait Subtrait: TraitA + TraitB {
-    auto impl TraitA; // OK
-    auto impl TraitB; // OK
+pub trait Subtrait: impl TraitA + impl TraitB {
 }
 
 impl Subtrait for MyType {
     fn foo(); //~ ERROR ambiguous associated item `foo`
     // Reason: it could be resolved to either `TraitA::foo` or `TraitB::foo`
-    //~ ERROR missing `auto impl TraitA` or `extern impl TraitA`
-    //~^ ERROR missing `auto impl TraitB` or `extern impl TraitB`
-    // ... because `foo` is not used to discharge `auto impl TraitA` or `auto impl TraitB`
+    //~ ERROR missing `impl TraitA` or `impl Subtrait - TraitA`
+    //~^ ERROR missing `impl TraitB` or `impl Subtrait - TraitB`
+    // ... because `foo` is not used to discharge `impl TraitA` or `impl TraitB`
 }
 
 let _ = <MyType as Subtrait>::foo(); //~ ERROR `Subtrait` has no associated method called `foo`
@@ -958,19 +942,17 @@ pub trait TraitB {
     fn foo();
 }
 
-pub trait Subtrait: TraitA + TraitB {
-    auto impl TraitA; // OK
-    auto impl TraitB; // OK
+pub trait Subtrait: impl TraitA + impl TraitB {
     fn foo();         // Also OK (*)
 }
 
 // Now, `Subtrait::foo` always resolves to the definition (*)
 
 impl Subtrait for MyType {
-    auto impl TraitA {
+    impl TraitA {
         fn foo() {}
     }
-    auto impl TraitB {
+    impl TraitB {
         fn foo() {}
     }
     fn foo() {} // (**)
@@ -990,20 +972,18 @@ In a sub-trait definition site, only `auto impl`s is ever allowed in any level o
 trait Supersupertrait {
     type Type;
 }
-trait Supertrait: Supersupertrait {
-    auto impl Supersupertrait;
+trait Supertrait: impl Supersupertrait {
 }
-trait Subtrait: Supertrait {
+trait Subtrait: impl Supertrait {
     // A full implementation as default is required at each nesting level, or ...
-    auto impl Supertrait {
-        auto impl Supersupertrait {
+    impl Supertrait {
+        impl Supersupertrait {
             type Type = ();
         }
     }
 }
-trait Subtrait2: Supertrait {
+trait Subtrait2: impl Supertrait {
     // No default implementation is supplied and the nesting terminates at this supertrait
-    auto impl Supertrait;
 }
 ```
 
@@ -1026,8 +1006,8 @@ For illustration, here is an example.
 trait Supertrait {
     type Item;
 }
-trait Subtrait: Supertrait {
-    auto impl Supertrait {
+trait Subtrait: impl Supertrait {
+    impl Supertrait {
         type Item = u32;
     }
 }
@@ -1035,9 +1015,8 @@ trait Subtrait: Supertrait {
 impl Supertrait for MyStruct {
     type Item = u8;
 }
-impl Subtrait for MyStruct {
-    // Without the following ...
-    extern impl Supertrait;
+// Without the Supertrait
+impl Subtrait - Supertrait for MyStruct {
     // ... the code will be rejected for overlapping `impl Supertrait`s
 }
 ```
@@ -1049,9 +1028,8 @@ The reason for this is that given that `trait Subtrait` has already provided its
 For important ecosystem traits like `PartialOrd` and `Ord`, this rule is still unsatisfactory due to [the potential rewrites required](#po-o) on downstream crates, even though it could be as small as an additional `extern impl PartialOrd`. As an extension, the rule could be relaxed with an attribute `#[probe_extern_impl]` and apply further trait selection to decide whether the default implementation given by the `auto impl` block should be used.
 
 ```rust
-trait Ord: PartialOrd {
-    #[probe_extern_impl]
-    auto impl PartialOrd {
+trait Ord: extern impl PartialOrd {
+    impl PartialOrd {
         // ...
     }
 }
@@ -1061,9 +1039,19 @@ impl PartialOrd for MyType { .. }
 impl Ord for MyType {
     // Given the current facts about `MyType`,
     // the compiler can deduce that `MyType: PartialOrd` is satisfiable,
-    // so the `auto impl PartialOrd` is not used
+}
+
+// And the following code that more strict can also be compiled..
+impl PartialOrd for MyType { .. }
+impl Ord - PartialOrd for MyType {
+    // Given the current facts about `MyType`,
+    // the compiler can deduce that `MyType: PartialOrd` is satisfiable,
 }
 ```
+
+Only make sure `impl PartialOrd for MyType` have higher priority than `Ord::impl PartialOrd`
+we only needs `impl PartialOrd for MyType` and `impl Ord for MyType` impelemnted all functions of `PartialOrd` and `Ord`
+
 
 However, this practice will not be encouraged eventually under provision of this RFC. For this reason, we also propose a future-compatibility lint, which will be escalated on a future Edition boundary to denial. The lint shall highlight the existing `auto impl` block in the subtrait definition and suggest an explicit `extern impl` statement in the subtrait implementation.
 
@@ -1075,16 +1063,14 @@ For illustration, here is an example.
 trait Supertrait {
     type Item;
 }
-trait Subtrait: Supertrait {
-    auto impl Supertrait;
+trait Subtrait: impl Supertrait {
 }
 
 impl Supertrait for MyStruct {
     type Item = u8;
 }
-impl Subtrait for MyStruct {
+impl Subtrait - Supertrait for MyStruct {
     // The following `extern impl` is optional
-    extern impl Supertrait;
 }
 ```
 
@@ -1098,16 +1084,17 @@ For illustration, here is an example.
 
 ```rust
 trait Supertrait {}
-trait Subtrait: Supertrait {
-    auto impl Supertrait;
+trait Subtrait: impl Supertrait {
 }
 
-impl Subtrait for MyStruct {
-    // The implementor must choose between
-    // - `auto impl Super` and
-    // - `extern impl Supertrait`.
-    // Without either, it would be rejected with unsatisfied super-bound
-    extern impl Supertrait;
+// The implementor must choose between
+// - `: impl Super` and
+// - `impl Supertrait for MyStruct`.
+// Without either, it would be rejected with unsatisfied super-bound
+impl Subtrait - Supertrait for MyStruct {
+}
+
+impl Supertrait for MyStruct {
 }
 ```
 
@@ -1129,7 +1116,7 @@ This is a SemVer hazard and can constitute a major change. This requires the dow
 
 This is a SemVer hazard and mandates a major change. The implementors should inspect their implementation against the trait safety specification and add or remove safety comments accordingly. It is possible that the semantics of the API would change as the safety obligation can propagate through the API across multiple crate boundaries.
 
-### Switching between `extern impl Supertrait` and `auto impl Supertrait`
+### Switching between `- Supertrait` and `impl Supertrait`
 
 This is a SemVer hazard and mandates a minor change. Provided that both the sub-trait and the super-trait remains SemVer stable, this constitutes only a change in implementation detail.
 
@@ -1155,8 +1142,7 @@ As illustration, the following is an example
 trait BaseFunction {
     fn base_capability(&self);
 }
-trait ManagementExtension: BaseFunction {
-    auto impl BaseFunction;
+trait ManagementExtension: impl BaseFunction {
     fn management_interface(&self);
 }
 
@@ -1169,35 +1155,33 @@ impl<T> BaseFunction for ManagementInterface<T> {
     fn base_capability(&self) { .. }
 }
 
-// Suppose that `auto impl BaseFunction` is "lowered" into a blanket `impl`,
+// Suppose that `impl BaseFunction` is "lowered" into a blanket `impl`,
 // then it is impossible for the `impl BaseFunction` to compile.
 
-impl<T> ManagementExtension for MangementInterface<T>
+impl<T> ManagementExtension - BaseFunction for MangementInterface<T>
 where T: ManagementHandle
 {
-    extern impl BaseFunction;
     fn management_interface(&self) { .. }
 }
 ```
 
 ## Why explicit opt-in/out for marker traits and traits with only default items?
 
-Marker supertraits and supertraits with `default` items can be easily overlooked when users write subtrait implementations. They would register too little signal for the reader to recognise the significance of traits of these kinds. For this reason, we bias towards asking users to provide clear syntatical signals through `auto impl MarkerTrait` or `extern impl MarkerTrait`, so that the automatic derivation of such traits is easily recognisable and provides obvious site for documentation in case justification is waranted.
+Marker supertraits and supertraits with `default` items can be easily overlooked when users write subtrait implementations. They would register too little signal for the reader to recognise the significance of traits of these kinds. For this reason, we bias towards asking users to provide clear syntatical signals through `impl MarkerTrait` or `- MarkerTrait`, so that the automatic derivation of such traits is easily recognisable and provides obvious site for documentation in case justification is waranted.
 
 ```rust
 // It is almost always a good idea to explain
 // why a trait like below is implemented on a type.
 trait MarkerTrait {}
 
-trait Supertrait: MarkerTrait {
-    auto impl MarkerTrait;
+trait Supertrait: impl MarkerTrait {
 }
 
 impl Supertrait for MyType {
     // Here it is a good place to explain
     // why MyType: MarkerTrait
-    auto impl MarkerTrait;
-    // or otherwise `extern impl MarkerTrait;` is required
+    impl MarkerTrait;
+    // or otherwise `Supertrait - MarkerTrait;` is required
 }
 ```
 
@@ -1210,8 +1194,7 @@ If we would deduce whether an `auto impl` should be effected, there could presen
 ```rs
 trait MyTrait { default fn .. }
 
-trait AutoMyTrait: MyTrait {
-    auto impl MyTrait;
+trait AutoMyTrait: impl MyTrait {
 }
 
 trait MyOtherTrait { .. }
@@ -1228,7 +1211,7 @@ impl<T: MyOtherTrait> MyTrait for T { .. }
 impl MyOtherTrait for Foo {}
 
 // QUESTION: which `impl MyTrait for Foo` fulfills the bound `Foo: MyTrait`?
-// Should it be the `auto impl MyTrait;` with default items?
+// Should it be the `impl MyTrait;` with default items?
 // Should it be the `impl<T: MyOtherTrait> MyTrait for T` with `T := Foo`?
 ```
 
@@ -1236,7 +1219,7 @@ impl MyOtherTrait for Foo {}
 
 We hold the basic assumption that most associated items of a trait have sensible names. We would rather advise that one shall avoid name clashes and ambiguity through better, future-oriented trait designs.
 
-In any case, `auto impl Trait { .. }` blocks still remains available for cases where ambiguity is unavoidable or favorable in niche scenario.
+In any case, `impl Trait { .. }` blocks still remains available for cases where ambiguity is unavoidable or favorable in niche scenario.
 
 ## Why this naming?
 
